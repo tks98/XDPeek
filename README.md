@@ -49,7 +49,7 @@ sudo apt-get install -y bpfcc-tools linux-headers-$(uname -r) llvm clang python3
 ```bash
 go mod download
 sudo -E go run trace.go -iface <network_interface>
-``
+```
 
 ### Python
 ```bash
