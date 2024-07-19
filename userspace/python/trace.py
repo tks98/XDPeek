@@ -11,8 +11,10 @@ import os
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description="XDPeek")
 parser.add_argument('--iface', type=str, default='eth0', help='Network interface to attach to (default: eth0)')
+parser.add_argument('--payload', action='store_true', help='Set to true to read packet payloads')
 args = parser.parse_args()
 interface = args.iface
+read_payload = args.payload
 
 # Get system boot time and current time
 boot_time_ns = int(time.clock_gettime_ns(time.CLOCK_BOOTTIME))
@@ -53,6 +55,10 @@ def print_event(cpu, data, size):
     dst_ip = f"{event.daddr & 0xff}.{(event.daddr >> 8) & 0xff}.{(event.daddr >> 16) & 0xff}.{event.daddr >> 24}"
     print(f"{timestamp_str} {proto_str} {src_ip}:{socket.ntohs(event.sport)} -> {dst_ip}:{socket.ntohs(event.dport)} {event.pkt_size} bytes")
 
+    if read_payload and event.payload_len > 0:
+        payload = bytes(event.payload[:event.payload_len]).decode('utf-8', errors='replace')
+        print(f"Payload: {payload}")
+
 # Print header
 print(f"Starting packet tracing on {interface}... Press Ctrl-C to end.\n")
 
@@ -64,4 +70,3 @@ try:
 except KeyboardInterrupt:
     print("\nRemoving filter from device")
     b.remove_xdp(interface)
-

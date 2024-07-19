@@ -11,20 +11,22 @@ import (
 	"syscall"
 	"time"
 
-	bpf "github.com/iovisor/gobpf/bcc"
+	"github.com/iovisor/gobpf/bcc"
 	"github.com/shirou/gopsutil/host"
 )
 
 // dataT represents the structure of our packet data
 type dataT struct {
-	Ts      uint64
-	Saddr   uint32
-	Daddr   uint32
-	Sport   uint16
-	Dport   uint16
-	Proto   uint8
-	Pad     [3]uint8
-	PktSize uint32
+	Ts         uint64
+	Saddr      uint32
+	Daddr      uint32
+	Sport      uint16
+	Dport      uint16
+	Proto      uint8
+	Pad        [3]uint8
+	PktSize    uint32
+	PayloadLen uint32
+	Payload    [128]byte
 }
 
 // ipToString converts a uint32 IP address to a string
@@ -34,7 +36,7 @@ func ipToString(ip uint32) string {
 
 // decodeEvent converts raw byte data into a dataT struct
 func decodeEvent(data []byte) (dataT, error) {
-	if len(data) < 32 {
+	if len(data) < 40 {
 		return dataT{}, fmt.Errorf("not enough data to decode")
 	}
 
@@ -47,9 +49,10 @@ func decodeEvent(data []byte) (dataT, error) {
 }
 
 func main() {
-	// Define a flag for the interface name
-	defaultIface := "eth0" // A popular default interface
+	// Define flags for the interface name and payload option
+	defaultIface := "eth0"
 	ifaceName := flag.String("iface", defaultIface, "Network interface to monitor")
+	payloadFlag := flag.Bool("payload", false, "Set to true to read packet payloads")
 	flag.Parse()
 
 	// Read the BPF program from the file
@@ -68,7 +71,7 @@ func main() {
 	bootTimeNs := bootTime * 1e9
 
 	// Initialize BPF module
-	m := bpf.NewModule(string(bpfProgram), []string{})
+	m := bcc.NewModule(string(bpfProgram), []string{})
 	defer m.Close()
 
 	// Load and attach XDP program
@@ -89,10 +92,10 @@ func main() {
 	defer m.RemoveXDP(*ifaceName)
 
 	// Set up perf map for communication between kernel and user space
-	table := bpf.NewTable(m.TableId("events"), m)
+	table := bcc.NewTable(m.TableId("events"), m)
 	channel := make(chan []byte)
 
-	perfMap, err := bpf.InitPerfMap(table, channel, nil)
+	perfMap, err := bcc.InitPerfMap(table, channel, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init perf map: %v\n", err)
 		os.Exit(1)
@@ -122,6 +125,10 @@ func main() {
 			fmt.Printf("%s %s %s:%d -> %s:%d %d bytes\n",
 				ts, proto, srcIP, binary.BigEndian.Uint16(binary.LittleEndian.AppendUint16(nil, event.Sport)),
 				dstIP, binary.BigEndian.Uint16(binary.LittleEndian.AppendUint16(nil, event.Dport)), event.PktSize)
+
+			if *payloadFlag && event.PayloadLen > 0 {
+				fmt.Printf("Payload: %s\n", string(event.Payload[:event.PayloadLen]))
+			}
 		}
 	}()
 
